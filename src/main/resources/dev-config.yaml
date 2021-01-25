@@ -1,0 +1,23 @@
+anypoint :
+
+  username: "sushmitha2601"
+  password : "Njc@1234"
+  envid : "a35548d3-279a-441c-b8fa-7745e328afd1"
+  host : "anypoint.mulesoft.com"
+  
+http:
+
+  port : "8081"  
+  
+file:
+
+  path: ""  
+  
+elk:
+
+   host : " " 
+   host1 : " "
+   
+  
+  
+  

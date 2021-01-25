@@ -1,0 +1,1987 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:sockets="http://www.mulesoft.org/schema/mule/sockets" xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:java="http://www.mulesoft.org/schema/mule/java"
+	xmlns:ftp="http://www.mulesoft.org/schema/mule/ftp" xmlns:cloudhub="http://www.mulesoft.org/schema/mule/cloudhub" xmlns:batch="http://www.mulesoft.org/schema/mule/batch" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/cloudhub http://www.mulesoft.org/schema/mule/cloudhub/current/mule-cloudhub.xsd
+http://www.mulesoft.org/schema/mule/ftp http://www.mulesoft.org/schema/mule/ftp/current/mule-ftp.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/sockets http://www.mulesoft.org/schema/mule/sockets/current/mule-sockets.xsd">
+	<os:object-store name="Object_store" doc:name="Object store" doc:id="9fc1b727-fe0e-4893-819a-bf10c7a85b08" />
+	<file:config name="File_Config" doc:name="File Config" doc:id="63acd2f1-ed8e-420f-beb8-a544cb280116" >
+		<file:connection workingDir="/opt/mule/elkdatavolume" />
+	</file:config>
+	<http:request-config name="grafana_req_config_basicauth" doc:name="HTTP Request configuration" doc:id="5c9daf68-afba-4459-ab17-1d80eb9c556a" >
+		<http:request-connection host="104.248.169.167" port="3000" connectionIdleTimeout="300000000">
+			<reconnection >
+				<reconnect />
+			</reconnection>
+			<http:authentication >
+				<http:basic-authentication username="admin" password="welcome" />
+			</http:authentication>
+			<http:client-socket-properties >
+				<sockets:tcp-client-socket-properties />
+			</http:client-socket-properties>
+		
+</http:request-connection>
+	</http:request-config>
+	<flow name="app-logs-flow" doc:id="7ef1e1a7-6dfe-4751-bc21-994db105d970" initialState="started">
+		<http:listener doc:name="Listener" doc:id="f57a2579-f2e3-4b0b-b9e1-86cf0ab07582" config-ref="httpListenerConfig" path="/logs"/>
+		<logger level="INFO" doc:name="Entry Logger" doc:id="8da29bf4-45c4-4e04-afe7-0f64e191a3ae" message="----Application Logs Extraction Started"/>
+		<flow-ref doc:name="Flow Reference" doc:id="fdf6770d-44bd-4baa-aa2a-202026448233" name="grafana-key-generation" />
+		<logger level="INFO" doc:name="Logger" doc:id="e1748775-aa42-46e0-bfad-fae5cf961dcd" />
+		<http:request method="POST" doc:name="Get Access Token" doc:id="ab46039c-9caf-4a79-8f78-d42f11dca951" path="/accounts/login" config-ref="httpRequestConfiguration" responseTimeout="300000">
+			<reconnect-forever frequency="200000" />
+			<http:query-params><![CDATA[#[output application/java
+---
+{
+	"username" : "${anypoint.username}",
+	"password" : "${anypoint.password}"
+}]]]></http:query-params>
+		</http:request>
+		<ee:transform doc:name="Access Token to JSON" doc:id="ec10e1e7-ec98-496a-beea-5c73b29a5ea1">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="accessToken"><![CDATA[%dw 2.0
+output application/json
+---
+payload."access_token"]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<cloudhub:list-applications doc:name="List Applications" doc:id="8cfb3541-3ed6-43ee-8c4f-b90fd690e5af" config-ref="CloudHub_Config"/>
+		<ee:transform doc:name="Paylod to JSON Array" doc:id="a6774439-bd0a-4435-afd8-2398d09efc0c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload map($.domain)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="37b5047b-2291-4deb-9519-69432ad1924e" >
+			<flow-ref doc:name="Call App Logs Batch Flow" doc:id="43c7b657-6452-4c7f-b1c2-cebaf542dd35" name="app-logs-batch-flow" />
+			<logger level="INFO" doc:name="Log extraction started" doc:id="a50d350d-b8dd-42ab-9732-7d381f46aa9f" message='#["LOG EXTRACTION STARTED"]' />
+		</foreach>
+		<logger level="INFO" doc:name="Exit Logger" doc:id="06c003ff-c37a-4abf-8aad-d1986a29e1f8" message="----Application Logs Extraction Completed"/>
+	
+</flow>
+	<flow name="grafana-key-generation" doc:id="97aecd7b-0025-4337-9a5f-0e4d30ea987e" >
+		<os:retrieve doc:name="Retrieve the api-key" doc:id="67b8697e-ca07-43e7-ab6c-33ad6034df0f" key="api-key-grafana" objectStore="Object_store" target="api-key">
+				<os:default-value><![CDATA[#[0]]]></os:default-value>
+					</os:retrieve>
+		<choice doc:name="checking if the api-key is there in OS" doc:id="ec6271fc-a1f6-46e2-8d54-523343f6ce87">
+			<when expression="#[vars.'api-key' == 0]">
+				<os:store doc:name="store the api-key" doc:id="2ffbdc81-852f-4f1b-b6fc-c3eab91fc04a" key="api-key-grafana" objectStore="Object_store">
+				<os:value><![CDATA[#[vars.'api-key']]]></os:value>
+			</os:store>
+				<http:request method="POST" doc:name="Copy_of_Request to create dashboards and panels" doc:id="10117a54-f327-49d1-a0ee-37e72f913cb3" config-ref="grafana_req_config" path="/api/dashboards/db" >
+					<http:body ><![CDATA[#[output application/json
+---
+{
+   "dashboard":
+    {
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "mytravel-exp-api.log",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": null,
+            "filterable": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "message"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 273
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "remainingOrgWorkers"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 187
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "name"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "runtime"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 185
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 252
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "totalOrgWorkers"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 224
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "@timestamp"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 179
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "deployedRegion"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 172
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 8,
+      "options": {
+        "showHeader": true,
+        "sortBy": []
+      },
+      "pluginVersion": "7.3.6",
+      "targets": [
+        {
+          "alias": "",
+          "bucketAggs": [
+            {
+              "field": "select field",
+              "id": "2",
+              "settings": {
+                "min_doc_count": 0,
+                "order": "desc",
+                "orderBy": "_term",
+                "size": "10"
+              },
+              "type": "terms"
+            }
+          ],
+          "metrics": [
+            {
+              "field": "@timestamp",
+              "id": "1",
+              "meta": {},
+              "settings": {},
+              "type": "logs"
+            }
+          ],
+          "query": "status",
+          "refId": "A",
+          "timeField": "@timestamp"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "API Overview",
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "deployedRegion",
+                "lastUpdated",
+                "name",
+                "remainingOrgWorkers",
+                "runtime",
+                "status",
+                "totalOrgWorkers",
+                "workers",
+                "@timestamp"
+              ]
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "aliasColors": {},
+      "bars": true,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "mytravel-exp-api.log",
+      "decimals": 0,
+      "description": "Number of times API was invoked.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": null,
+            "filterable": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "hiddenSeries": false,
+      "id": 2,
+      "legend": {
+        "alignAsTable": true,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "rightSide": true,
+        "show": true,
+        "total": true,
+        "values": true
+      },
+      "lines": false,
+      "linewidth": 1,
+      "nullPointMode": "null",
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.3.6",
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "meta": {},
+              "settings": {},
+              "type": "count"
+            }
+          ],
+          "query": "\"Request received to api\"",
+          "refId": "A",
+          "timeField": "@timestamp"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "API Hits",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "Count"
+              ]
+            }
+          }
+        }
+      ],
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Count",
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "aliasColors": {},
+      "bars": true,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "mytravel-exp-api.log",
+      "decimals": 0,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": null,
+            "filterable": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "@timestamp"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 206
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 166
+              }
+            ]
+          }
+        ]
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "hiddenSeries": false,
+      "id": 6,
+      "legend": {
+        "alignAsTable": true,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "rightSide": true,
+        "show": true,
+        "total": true,
+        "values": true
+      },
+      "lines": false,
+      "linewidth": 1,
+      "nullPointMode": "null",
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.3.6",
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "alias": "POST",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "hide": false,
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "meta": {},
+              "settings": {},
+              "type": "count"
+            }
+          ],
+          "query": "\"HTTP Method: POST\"",
+          "refId": "A",
+          "timeField": "@timestamp"
+        },
+        {
+          "alias": "GET",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "meta": {},
+              "settings": {},
+              "type": "count"
+            }
+          ],
+          "query": "\"HTTP Method: GET\"",
+          "refId": "B",
+          "timeField": "@timestamp"
+        },
+        {
+          "alias": "DELETE",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "hide": false,
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "\"HTTP Method: DELETE\"",
+          "refId": "C",
+          "timeField": "@timestamp"
+        },
+        {
+          "alias": "PUT",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "hide": false,
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "\"HTTP Method: PUT\"",
+          "refId": "D",
+          "timeField": "@timestamp"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Frequency of HTTP Methods",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "GET",
+                "POST",
+                "DELETE",
+                "PUT"
+              ]
+            }
+          }
+        }
+      ],
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Count",
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": "",
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "aliasColors": {},
+      "bars": true,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "mytravel-exp-api.log",
+      "decimals": 0,
+      "description": "Number of times an Error Code occurred.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": null,
+            "filterable": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "@timestamp"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 168
+              }
+            ]
+          }
+        ]
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "hiddenSeries": false,
+      "id": 4,
+      "legend": {
+        "alignAsTable": true,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "rightSide": true,
+        "show": true,
+        "total": true,
+        "values": true
+      },
+      "lines": false,
+      "linewidth": 1,
+      "nullPointMode": "null",
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.3.6",
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "alias": "Error Code 500 - Server Error",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "meta": {},
+              "settings": {},
+              "type": "count"
+            }
+          ],
+          "query": "\"statusCode: 500\"",
+          "refId": "A",
+          "timeField": "@timestamp"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Frequency of Error Codes",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "Error Code 500 - Server Error"
+              ]
+            }
+          }
+        }
+      ],
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Count",
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    }
+  ],
+  "schemaVersion": 26,
+  "style": "dark",
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "title": "ravi-dashboard",
+  "uid": null,
+  "version": 1
+}
+}]]]></http:body>
+					<http:headers ><![CDATA[#[output application/java
+---
+{
+	"Content-Type" : "application/json",
+	"Authorization" : "Bearer eyJrIjoiMDFMeFF6NndKMTI3TVRUV2RjTDByUG53NzFvTGloUG0iLCJuIjoiam9obiIsImlkIjoxfQ==" 
+
+	
+}]]]></http:headers>
+				</http:request>
+			
+</when>
+			<otherwise>
+				<logger level="INFO" doc:name="api-key already exists" doc:id="35215135-571c-4352-b715-814fecda8294" message='#[""]' />
+				<http:request method="POST" doc:name="Request to grafana for api-key" doc:id="16a2ab23-25c2-43dc-8745-fa70b2467e67" config-ref="grafana_req_config_basicauth" path="/api/auth/keys" target="api-key" targetValue="#[payload.key]">
+			<http:body><![CDATA[#[{"name":"api-key", "role": "Admin"}]]]></http:body>
+			<http:headers><![CDATA[#[output application/java
+---
+{
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+		</http:request>
+			
+</otherwise>
+		</choice>
+	</flow>
+	<flow name="app-logs-batch-flow" doc:id="24d10db4-aaec-44e5-a9b4-271ccc44a76c" >
+		<set-variable value="#[payload]" doc:name="Set Variable Domain" doc:id="2c8306d5-f0af-4040-84aa-abd8ee2e899b" variableName="domain" />
+		<http:request method="GET" doc:name="Get Instance Id" doc:id="98fb6d64-843e-4436-b5e6-9d61b22aa186" config-ref="httpRequestConfiguration" path="/cloudhub/api/v2/applications/{appname}/deployments?orderByDate=DESC" responseTimeout="300000" >
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"X-ANYPNT-ENV-ID" : "${anypoint.envid}",
+	"Authorization" : "bearer " ++ vars.accessToken
+}]]]></http:headers>
+			<http:uri-params ><![CDATA[#[output application/java
+---
+{
+	"appname" : vars.domain
+}]]]></http:uri-params>
+		</http:request>
+		<ee:transform doc:name="Transform Message" doc:id="83b087fb-7f41-45b4-83a8-e14b0c8cb8b1" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var date = max(payload.data.createTime)
+---
+//(flatten(payload.data.instances)).instanceId reduce ($)
+(((payload.data map (item, index) ->{
+    "data" : if(item.createTime == date) item else null 
+} ) filter ((item, index) -> item.data != null )).data.instances..instanceId) reduce ($)]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<os:retrieve doc:name="Retrieve" doc:id="a6f6eb96-eb21-4941-8626-75d716c765d0" key="#[vars.domain]" target="recordId" objectStore="Object_store">
+			<os:default-value ><![CDATA[0]]></os:default-value>
+		</os:retrieve>
+		<http:request method="POST" doc:name="Get Application Logs" doc:id="16694529-9e1c-4ba9-a142-c17fda737efd" config-ref="httpRequestConfiguration" path="/cloudhub/api/v2/applications/{appname}/logs" responseTimeout="3000000" targetValue="#[output application/json --- payload]">
+				<reconnect-forever frequency="200000" />
+						<http:body ><![CDATA[#[output application/json
+---
+
+{ 
+"instanceId": payload, 
+"startTime": " ", 
+"endTime": " ", 
+"priority": "", 
+"threadName": "", 
+"limit": 100, 
+"limitMsgLen": 200000, 
+"descending": false,
+"lowerId" : vars.recordId as String
+}]]]></http:body>
+			<http:headers><![CDATA[#[output application/java
+---
+{
+	"X-ANYPNT-ENV-ID" : "${anypoint.envid}",
+	"Authorization" : "bearer " ++ vars.accessToken
+}]]]></http:headers>
+			<http:uri-params><![CDATA[#[output application/java
+---
+{
+	"appname" : vars.domain,
+	"instance_id" : payload
+}]]]></http:uri-params>
+		</http:request>
+		<choice doc:name="/checking if there is cloudHub logs for the app" doc:id="5ecf4a40-08b0-4297-9050-6c79c0a71d2b" >
+			<when expression="#[sizeOf(payload) != 0]">
+				<ee:transform doc:name="transforming logs and timestamp from epoch" doc:id="a8f96619-3194-4c04-bf6c-0e484e2d095c">
+					<ee:message>
+					</ee:message>
+					<ee:variables >
+						<ee:set-variable variableName="appLogs" ><![CDATA[%dw 2.0
+output application/json
+var temp = payload map (item, index) -> (
+
+if(item.event.message contains("correlationId"))((read (item.event.message, "application/json")) ++ ("deploymentId" : item.deploymentId) ++ ("line" : item.line) ++ ("recordId" : item.recordId)) else item
+//read (item.event.message, "application/json") 
+
+)
+---
+
+temp map ((item, index) ->if(keysOf(item)[0] contains  "correlationId")((((item - "elapsed") - "applicationVersion") - "threadName") - "locationInfo" ++ ("fileName" : item.locationInfo.fileName) ++ ("rootContainer" : item.locationInfo.rootContainer) )  else ((item - "event") - "recordId") ++ (("loggerName" : item.event.loggerName) ++ ("threadName" : item.event.threadName) ++ ("message" : item.event.message) ++ ("priority" : item.event.priority) ++ ("timestamp" : ( ((item.event.timestamp as Number/1000) as DateTime  + |PT5H30M|) as String {format:"yyyy-MM-dd HH:mm:ss"})) ++ ("recordId" : item.recordId)))
+
+//read(payload,"application/json")
+
+/*
+{
+  "message": “”,
+  "correlationId" :
+  “tracePoint”:
+  “priority”
+   “fileName”:
+  “timestamp”:
+  “applicationName”:
+  “rootContainer”:
+   “environment”:
+   "deploymentId": "5ff69f0ff0eaef427f42982f",
+   "content"
+}
+
+
+*/]]></ee:set-variable>
+					</ee:variables>
+				</ee:transform>
+				<http:request method="GET" doc:name="Request for application stats" doc:id="b2975485-8010-4746-80ca-e86bdd97744d" config-ref="cloudhub-api" path="/cloudhub/api/v2/applications/{appname}" outputMimeType="application/json">
+					<http:headers ><![CDATA[#[output application/java
+---
+{
+	"" : "Value",
+	"X-ANYPNT-ENV-ID" : "${anypoint.envid}",
+	"Authorization" : "Bearer " ++ vars.accessToken
+}]]]></http:headers>
+					<http:uri-params ><![CDATA[#[output application/java
+---
+{
+	"appname" : vars.domain
+}]]]></http:uri-params>
+				</http:request>
+				<ee:transform doc:name="transforming app stats" doc:id="d0dbe255-a68f-43c1-9f30-e26af3ada5ab">
+					<ee:message>
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+
+// application overview panel
+vars.appLogs  ++
+
+[{
+    "status" : payload.status,
+    "runtime" : payload.muleVersion.version,
+    "name" : payload.workers."type".name,
+    //"weight" :  payload.workers."type".weight,
+    "workers" :  payload.workers."type".cpu ++ " x " ++ payload.workers.amount as String,
+    "memory" :  payload.workers."type".memory,
+    "amount" : payload.workers.amount,
+    "totalOrgWorkers" : payload.workers.totalOrgWorkers,
+    "remainingOrgWorkers" :payload.workers.remainingOrgWorkers,
+    "deployedRegion" : payload.workerStatuses.deployedRegion[0],
+ ("lastUpdateTime" :  ( ((payload.lastUpdateTime as Number/1000) as DateTime  + |PT5H30M|) as String {format:"yyyy-MM-dd HH:mm:ss"})) 
+}]]]></ee:set-payload>
+					</ee:message>
+					<ee:variables >
+					</ee:variables>
+				</ee:transform>
+				<ee:transform doc:name="transforming app stats and app Logs" doc:id="1ece9ebb-f822-42a7-a5ee-623e2b280d26">
+					<ee:message>
+						<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+/*
+payload map(item,index)->
+{
+	"data": "recordId: " as String ++ item.recordId  as String default " " ++ ", deploymentId: " as String ++ item.deploymentId default " " as String ++ ", instanceId: " as String ++ item.instanceId default " " as String ++ ", line: " as String ++ item.line default " " as String ++ ", event: {loggerName: " as String ++ item.event.loggerName as String ++ ", threadName: " as String ++ item.event.threadName as String ++ ", message: " as String ++ item.event.message as String ++ ", priority: " as String ++ item.event.priority as String ++ ", timestamp: " as String ++ item.event.timestamp as String ++ "}" as String
+}
+*/
+
+payload map (item, index) -> (
+     if((keysOf(item)[0] contains("correlationId")))("{correlationId: " as String ++ item.correlationId as String default " " ++ ", message: " as String ++ item.message  as String default " "
+++ ", tracePoint: " as String ++ item.tracePoint  as String default " "
+ ++ ", priority: " as String ++ item.priority  as String default " "
+++ ", timestamp: " as String ++ item.timestamp  as String default " "
+++ ", content: " as String ++ (write(item.content, "application/json") as String replace  /[^a-z0-9A-Z {:,.}]/ with "") 
+++ ", applicationName: " as String ++ item.applicationName  as String default " "
+++ ", environment: " as String ++ item.environment  as String default " "
+ ++ ", deploymentId: " as String ++ item.deploymentId  as String default " "
+++ ", line: " as String ++ item.line  as String default " "
+++ ", recordId: " as String ++ item.recordId  as String default " "
+++ ", fileName: " as String ++ item.fileName  as String default " "
+
+++ ", rootContainer: " as String ++ item.rootContainer  as String default " " ++ "}"
+
+ ) else if((keysOf(item)[3] contains("loggerName")))(
+ "{deploymentId: " as String ++ item.deploymentId  as String default " "
+++ ", instanceId: " as String ++ item.instanceId  as String default " "
+++ ", line: " as String ++ item.line  as String default " "
+++ ", loggerName: " as String ++ item.loggerName  as String default " "
+++ ", threadName: " as String ++ item.threadName  as String default " "
+++ ", message: " as String ++ item.message  as String default " "
+ ++ ", priority: " as String ++ item.priority  as String default " "
+ ++ ", timestamp: " as String ++ item.timestamp  as String default " "
+++ ", recordId: " as String ++ item.recordId  as String default " " ++ "}"
+
+ )
+ else (
+ "{status: " as String ++ item.status  as String default " "
+++ ", runtime: " as String ++ item.runtime  as String default " "
+++ ", name: " as String ++ item.name  as String default " "
+++ ", workers: " as String ++ item.workers  as String default " "
+++ ", memory: " as String ++ item.memory  as String default " "
+++ ", amount: " as String ++ item.amount  as String default " "
+++ ", totalOrgWorkers: " as String ++ item.totalOrgWorkers  as String default " "
+++ ", remainingOrgWorkers: " as String ++ item.remainingOrgWorkers  as String default " "
+++ ", deployedRegion: " as String ++ item.deployedRegion  as String default " "
+++ ", lastUpdateTime: " as String ++ item.lastUpdateTime  as String default " " ++ "}"
+
+ )
+
+
+)
+
+/*
+++ ", instanceId: " as String ++ item.instanceId default " " as String ++ ", line: " as String ++ item.line  as String default " "
+++ ", loggerName: " as String ++ item.loggerName  as String default " "
+++ ", threadName: " as String ++ item.threadName  as String default " "
+++ ", message: " as String ++ item.message  as String default " "
+++ ", priority: " as String ++ item.priority  as String default " "
+++ ", timestamp: " as String ++ item.timestamp  as String default " "
+++ ", recordId: " as String ++ item.recordId  as String default " "
+*/
+]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+				<file:write doc:name="/writing the app logs to fileBeats to be fetched by logstash" doc:id="c0f25471-c72c-432d-857c-54752e358f3e" path='#[lower(vars.domain) ++ ".log"]' mode="APPEND" config-ref="File_Config">
+				</file:write>
+				<os:store doc:name="Store" doc:id="c9ebc207-e361-42c1-8bf3-48c4d62fee81" objectStore="Object_store" key="#[vars.domain]">
+					<os:value ><![CDATA[#[vars.appLogs.recordId[-1]]]]></os:value>
+				</os:store>
+				<try doc:name="Try" doc:id="873d3d77-6938-455a-b8f9-2db58649b742" >
+					<http:request method="GET" doc:name="/checking if the index pattern is present in ELK" doc:id="d5d1a750-f6c2-4496-97cf-211a39a75568" config-ref="elk_request_config" path="/{indexName}">
+						<http:uri-params ><![CDATA[#[output application/java
+---
+{
+	"indexName" : lower(vars.domain) ++ ".log"
+}]]]></http:uri-params>
+					</http:request>
+					<ee:transform doc:name="Transform Message" doc:id="f2d89985-2cbb-4480-b477-40d29c46c1a8" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+"index exists already"]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<error-handler >
+						<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="500bed9d-49a3-4000-8f02-400e933ee112" >
+							<try doc:name="Try" doc:id="2c3f2cb8-3b46-45e3-a64c-6b8b1bde46bb" >
+								<http:request method="POST" doc:name="/creating new index pattern if index is not present in ELK" doc:id="6b902a65-9853-4f8f-ae2f-c3afb1e36489" config-ref="elk1_request_config" path="/api/saved_objects/index-pattern">
+								<http:body><![CDATA[#[{"attributes":{"title":(lower(vars.domain) ++ ".log") ,"timeFieldName":"@timestamp"}}]]]></http:body>
+								<http:headers><![CDATA[#[output application/java
+---
+{
+	"Content-Type" : "application/json",
+	"kbn-xsrf" : "asasa"
+}]]]></http:headers>
+							</http:request>
+								<error-handler >
+									<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="a9ffd815-095b-45dc-a00b-9b2858279b52" >
+										<logger level="INFO" doc:name="Logger" doc:id="0944dc8c-d5d6-42dd-a325-b7c82ad10d05" />
+										<flow-ref doc:name="Copy_of_Flow Reference" doc:id="d25c2fec-450c-4cfa-a5cb-8d71cda3f697" name="elk-mule-grafana-pocFlow3" />
+									
+</on-error-continue>
+								</error-handler>
+							</try>
+						</on-error-continue>
+					</error-handler>
+				</try>
+			</when>
+			<otherwise >
+				<ee:transform doc:name="Transform Message" doc:id="ef21dc85-5b27-4a49-b005-277771eec5e2" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+"no application logs"]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			
+</otherwise>
+		</choice>
+	
+</flow>
+	<flow name="elk-mule-grafana-pocFlow3" doc:id="60492d68-204b-4199-92fa-e6af6082086e">
+		<http:request method="POST" doc:name="Request to create datasource" doc:id="0f6903ea-8031-4a20-ae7c-a68093d69c4c" config-ref="grafana_req_config" path="/api/datasources">
+			<http:body ><![CDATA[#[output application/json
+---
+{"access":"proxy","jsonData":{"esVersion":70,"logLevelField":"","logMessageField":"","maxConcurrentShardRequests":5,"timeField":"@timestamp"},"name": lower(vars.domain),"type":"elasticsearch","database" : lower(vars.domain) ++ ".log","url":"http://104.248.169.167:9200"}]]]></http:body>
+			<http:headers ><![CDATA[#[output application/json
+---
+{
+	"Authorization" : "Bearer " ++  "eyJrIjoiU1ozekxsNmlGUklnNkVGcktTQUhvWHIyZlpqMTRsT24iLCJuIjoiZGVtbyIsImlkIjoxfQ==" 
+}]]]></http:headers>
+		</http:request>
+		<http:request method="POST" doc:name="Request to create dashboards and panels" doc:id="18fa5433-c41f-4e0d-9442-cf2b5cfa4083" config-ref="grafana_req_config" path="/api/dashboards/db">
+			<http:body ><![CDATA[#[output application/json
+---
+{
+   "dashboard":
+    {
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "aliasColors": {},
+      "bars": true,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": vars.domain,
+      "description": "Frequency of API hits",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "hiddenSeries": false,
+      "id": 6,
+      "legend": {
+        "alignAsTable": true,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "rightSide": true,
+        "show": true,
+        "total": true,
+        "values": true
+      },
+      "lines": false,
+      "linewidth": 1,
+      "nullPointMode": "null",
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.3.6",
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "\"Request received to api\"",
+          "refId": "A",
+          "timeField": "@timestamp"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "API -Hits",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "No Of Hits",
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": "",
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "aliasColors": {},
+      "bars": true,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": vars.domain,
+      "decimals": 0,
+      "description": "No of times each HTTP method is invoked",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": null,
+            "filterable": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "hiddenSeries": false,
+      "id": 8,
+      "legend": {
+        "alignAsTable": true,
+        "avg": false,
+        "current": false,
+        "hideEmpty": false,
+        "hideZero": false,
+        "max": false,
+        "min": false,
+        "rightSide": true,
+        "show": true,
+        "total": true,
+        "values": true
+      },
+      "lines": false,
+      "linewidth": 1,
+      "nullPointMode": "null",
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.3.6",
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "alias": "POST",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "meta": {},
+              "settings": {},
+              "type": "count"
+            }
+          ],
+          "query": "\"content\" AND \"POST\"",
+          "refId": "A",
+          "timeField": "@timestamp"
+        },
+        {
+          "alias": "GET",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "\"content\" AND \"GET\"",
+          "refId": "B",
+          "timeField": "@timestamp"
+        },
+        {
+          "alias": "DELETE",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "\"content\" AND \"DELETE\"",
+          "refId": "C",
+          "timeField": "@timestamp"
+        },
+        {
+          "alias": "PUT",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "\"content\" AND \"PUT\"",
+          "refId": "D",
+          "timeField": "@timestamp"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Frequency of HTTP methods",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "POST",
+                "GET",
+                "DELETE",
+                "PUT"
+              ]
+            }
+          }
+        }
+      ],
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Count",
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": "",
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    },
+    {
+      "aliasColors": {},
+      "bars": true,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": vars.domain,
+      "decimals": 0,
+      "description": "Frequency of an error code.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": null,
+            "filterable": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "@timestamp"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 186
+              }
+            ]
+          }
+        ]
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "hiddenSeries": false,
+      "id": 4,
+      "legend": {
+        "alignAsTable": true,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "rightSide": true,
+        "show": true,
+        "total": true,
+        "values": true
+      },
+      "lines": false,
+      "linewidth": 1,
+      "nullPointMode": "null",
+      "options": {
+        "alertThreshold": true
+      },
+      "percentage": false,
+      "pluginVersion": "7.3.6",
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "alias": "Error Code 400",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "hide": false,
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "meta": {},
+              "settings": {},
+              "type": "count"
+            }
+          ],
+          "query": "\"Message\" AND \"Error\" AND \"bad request (400)\"",
+          "refId": "A",
+          "timeField": "@timestamp"
+        },
+        {
+          "alias": "Error Code 401",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "hide": false,
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "\"Message\" AND \"Error\" AND \"unathorized (401)\"",
+          "refId": "B",
+          "timeField": "@timestamp"
+        },
+        {
+          "alias": "Error Code 500",
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "auto",
+                "min_doc_count": 0,
+                "trimEdges": 0
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "hide": false,
+          "metrics": [
+            {
+              "field": "select field",
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "\"Message\" AND \"Error\" AND \"internal server error (500)\"",
+          "refId": "C",
+          "timeField": "@timestamp"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Frequency of Error Codes",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "Time",
+                "Error Code 401",
+                "Error Code 500",
+                "Error Code 400"
+              ]
+            }
+          }
+        }
+      ],
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "short",
+          "label": "Count",
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yaxis": {
+        "align": false,
+        "alignLevel": null
+      }
+    }
+  ],
+  "schemaVersion": 26,
+  "style": "dark",
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "title": vars.domain,
+  "uid": null,
+  "version": 1
+}
+}]]]></http:body>
+			<http:headers ><![CDATA[#[output application/java
+---
+{
+	"Content-Type" : "application/json",
+		"Authorization" : "Bearer " ++  "eyJrIjoiU1ozekxsNmlGUklnNkVGcktTQUhvWHIyZlpqMTRsT24iLCJuIjoiZGVtbyIsImlkIjoxfQ==" 
+
+	
+}]]]></http:headers>
+		</http:request>
+	
+
+</flow>
+	<flow name="key-deletion-flow" doc:id="41db14c9-4bc4-4c95-b454-421c866768b6" >
+		<http:listener doc:name="Listener" doc:id="2876ab1e-2cca-440f-a4e9-054283f245aa" config-ref="httpListenerConfig" path="/deleteKey" allowedMethods="POST"/>
+		<os:remove doc:name="Remove" doc:id="594b7123-48af-4491-a7f0-8e931cb5f0e6" key="#[attributes.queryParams.key]" objectStore="Object_store"/>
+		<ee:transform doc:name="Specific Key Deleted" doc:id="66ae4aeb-193b-43e9-aaae-30c335ac77ab" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+payload.key ++ " Deleted"]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="elk-mule-grafana-pocFlow1" doc:id="1d0ee660-4dfc-4c63-9bd7-56ea11629472" >
+		<http:listener doc:name="Listener" doc:id="1e10032a-91f6-4dc9-9cf6-def294fcd9d8" config-ref="httpListenerConfig" path="/deletekeys"/>
+		<os:clear doc:name="Clear" doc:id="dd6508ec-dd14-478d-bd85-fc8bef7286aa" objectStore="Object_store"/>
+		<ee:transform doc:name="Object Store Cleared" doc:id="651815fa-6528-4b00-abd6-03dc196c8a6b" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+"Object Store Cleared"]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="elk-mule-grafana-pocFlow2" doc:id="b0b0e7c9-ab34-41b1-8b58-9accd0f681b4" >
+		<http:listener doc:name="Listener" doc:id="c4216a98-2beb-40b0-a705-7434d1dbd8c1" config-ref="httpListenerConfig" path="/all"/>
+		<os:retrieve-all-keys doc:name="Retrieve all keys" doc:id="eeff6ddd-589d-40bb-affb-93cfd1720b26" objectStore="Object_store"/>
+		<ee:transform doc:name="Transform Message" doc:id="226c6ef3-0b34-47f8-a84c-c725d817c442" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="elk-mule-grafana-pocFlow" doc:id="e7744d6e-4bb3-4360-a5df-1b0c94167990">
+		<http:request method="POST" doc:name="Copy_of_/creating a data source in grafana" doc:id="f20b82e5-a61a-4692-9363-f882b3345b90" config-ref="grafana_req_config" path="/api/datasources">
+			<http:body><![CDATA[#[output application/json
+---
+{"access":"proxy","jsonData":{"esVersion":70,"logLevelField":"","logMessageField":"","maxConcurrentShardRequests":5,"timeField":"@timestamp"},"name": lower(vars.domain) ++ ".log","type":"elasticsearch","database" : lower(vars.domain) ++ ".log","url":"http://localhost:9200"}]]]></http:body>
+			<http:headers><![CDATA[#[output application/java
+---
+{
+	"Authorization" : "Bearer eyJrIjoiZERtQ3pHZm54RFc4RDZWSjV6SjdVSkxCbHh0QjNrbEQiLCJuIjoidHJpYWxLZXkiLCJpZCI6MX0="
+}]]]></http:headers>
+		</http:request>
+		<http:request method="POST" doc:name="Copy_of_/creating a dashboard in grafana" doc:id="12fa4aba-d48a-4fac-bcfa-2a0b15e4651b" config-ref="grafana_req_config" path="/api/dashboards/db">
+			<http:body><![CDATA[#[output application/json
+---
+{
+ "dashboard":  {
+        "id": null,
+        "panels": [
+            {
+                "alert": {
+                    "alertRuleTags": {},   
+                    "conditions": [
+                        {
+                            "evaluator": {
+                                "params": [
+                                    25
+                                ],
+                                "type": "gt"
+                            },
+                            "operator": {
+                                "type": "and"
+                            },
+                            "query": {
+                                "params": [
+                                    "A",
+                                    "5m",
+                                    "now"
+                                ]
+                            },
+                            "reducer": {
+                                "params": [],
+                                "type": "avg"
+                            },
+                            "type": "query"
+                        }
+                    ],
+                    "executionErrorState": "alerting",
+                    "for": "5m",
+                    "frequency": "1m",
+                    "handler": 1,
+                    "name": "Panel Title alert",
+                    "noDataState": "no_data",
+                    "notifications": []
+                },
+                "aliasColors": {},
+                "bars": false,
+                "dashLength": 10,
+                "dashes": false,
+                "datasource": "demo-elk.log",
+                "fieldConfig": {
+                    "defaults": {
+                        "custom": {}
+                    },
+                    "overrides": []
+                },
+                "fill": 1,
+                "fillGradient": 0,
+                "gridPos": {
+                    "h": 9,
+                    "w": 12,
+                    "x": 0,
+                    "y": 0
+                },
+                "hiddenSeries": false,
+                "id": 2,
+                "legend": {
+                    "avg": false,
+                    "current": false,
+                    "max": false,
+                    "min": false,
+                    "show": true,
+                    "total": false,
+                    "values": false
+                },
+                "lines": true,
+                "linewidth": 1,
+                "nullPointMode": "null",
+                "options": {
+                    "dataLinks": []
+                },
+                "percentage": false,
+                "pointradius": 2,
+                "points": false,
+                "renderer": "flot",
+                "seriesOverrides": [],
+                "spaceLength": 10,
+                "stack": false,
+                "steppedLine": false,
+                "targets": [
+                    {
+                        "refId": "A",
+                        "scenarioId": "random_walk"
+                    }
+                ],
+                "thresholds": [
+                    {
+                        "colorMode": "critical",
+                        "fill": true,
+                        "line": true,
+                        "op": "gt",
+                        "value": 50
+                    }
+                ],
+                "timeFrom": null,
+                "timeRegions": [],
+                "timeShift": null,
+                "title": "Panel Title",
+                "tooltip": {
+                    "shared": true,
+                    "sort": 0,
+                    "value_type": "individual"
+                },
+                "type": "graph",
+                "xaxis": {
+                    "buckets": null,
+                    "mode": "time",
+                    "name": null,
+                    "show": true,
+                    "values": []
+                },
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "label": null,
+                        "logBase": 1,
+                        "max": null,
+                        "min": null,
+                        "show": true
+                    },
+                    {
+                        "format": "short",
+                        "label": null,
+                        "logBase": 1,
+                        "max": null,
+                        "min": null,
+                        "show": true
+                    }
+                ],
+                "yaxis": {
+                    "align": false,
+                    "alignLevel": null
+                }
+            }
+        ],
+        "title": (lower(vars.domain) ++ ".log"),
+        "uid": null,
+        "version": 1
+    }
+}]]]></http:body>
+			<http:headers><![CDATA[#[output application/java
+---
+{
+	"Authorization" : "Bearer eyJrIjoiZERtQ3pHZm54RFc4RDZWSjV6SjdVSkxCbHh0QjNrbEQiLCJuIjoidHJpYWxLZXkiLCJpZCI6MX0=",
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+		</http:request>
+	</flow>
+	<flow name="key-deletion-flow1" doc:id="de89f2c0-356d-4596-838c-239a4dccd91a" >
+		<http:listener doc:name="Listener" doc:id="ba7bfc0b-b12d-489f-870d-21c1cbe354fb" config-ref="httpListenerConfig" path="/deleteKey"/>
+		<os:remove doc:name="Removing a specific key-value pair from OS" doc:id="bce45d70-39f3-43db-b303-2ef2e3d6ef2c" key="#[attributes.queryParams.key]" objectStore="Object_store"/>
+		<ee:transform doc:name="Specific Key Deleted" doc:id="21bb7289-5041-42bc-9e0f-05cb70363b82" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+attributes.queryParams.key ++ " Deleted"]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+</mule>
